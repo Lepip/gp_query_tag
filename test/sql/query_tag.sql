@@ -23,3 +23,38 @@ SHOW QUERY_TAG;
 SET QUERY_TAG TO ";";
 SHOW QUERY_TAG;
 
+-- complex behaviour
+
+-- should set to rgroup1
+
+CREATE RESOURCE GROUP rgroup1 WITH (CPU_RATE_LIMIT=20, MEMORY_LIMIT=25, MEMORY_SPILL_RATIO=20);
+CREATE RESOURCE GROUP rgroup2 WITH (CPU_RATE_LIMIT=20, MEMORY_LIMIT=25, MEMORY_SPILL_RATIO=20);
+
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag)
+    VALUES ('admin_group', 'clepip', 'rgroup1', 3, 'group=rgroup1');
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag)
+    VALUES ('admin_group', 'clepip', 'rgroup2', 4, 'group=rgroup1');
+
+SET QUERY_TAG TO "group=rgroup1";
+SELECT current_rsgroup();
+
+-- should still set to rgroup1 (we are in admin_group, the "current_rsgroup" shows group after
+--- applying tags, and tags are applied accordingly to users rsgroup)
+
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag)
+    VALUES ('rgroup1', 'clepip', 'rgroup2', 1, 'group=still_1');
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag)
+    VALUES ('admin_group', 'clepip', 'rgroup1', 5, 'group=still_1');
+
+SET QUERY_TAG TO "group=still_1";
+SELECT current_rsgroup();
+
+-- (right now doesn't work)
+
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag, active)
+    VALUES ('admin_group', 'clepip', 'rgroup2', 1, 'group=cancelled', FALSE);
+INSERT INTO wlm_rules (rsgname, role, dest_rsg, order_id, query_tag, active)
+    VALUES ('admin_group', 'clepip', 'rgroup1', 2, 'group=cancelled', TRUE);
+
+SET QUERY_TAG TO "group=cancelled";
+SELECT current_rsgroup();

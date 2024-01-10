@@ -15,7 +15,7 @@
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(show_current_rsgroup);
+PG_FUNCTION_INFO_V1(current_rsgroup);
 PG_FUNCTION_INFO_V1(isTagInGuc);
 
 Oid resgroup_assign_by_query_tag(void);
@@ -26,7 +26,7 @@ void _PG_init(void);
 void _PG_fini(void);
 
 static char *query_tag = NULL;
-const static char *NO_GROUP_MSG = "undetermined";
+const static char *NO_GROUP_MSG = "unknown";
 static const int MAX_QUERY_SIZE = 200;
 static const int MAX_QUERY_TAG_LENGTH = 100;
 
@@ -142,7 +142,7 @@ Oid get_current_resgroup_id() {
     return group_id;
 }
 
-Datum show_current_rsgroup(PG_FUNCTION_ARGS) {
+Datum current_rsgroup(PG_FUNCTION_ARGS) {
     Oid group_id = get_current_resgroup_id();
     if (!OidIsValid(group_id))
         PG_RETURN_TEXT_P(cstring_to_text(NO_GROUP_MSG));
