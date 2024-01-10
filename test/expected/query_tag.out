@@ -1,0 +1,49 @@
+CREATE EXTENSION query_tag;
+SET QUERY_TAG TO "aboba=aboba";
+-- weird query_tags
+SET QUERY_TAG TO "a";
+ERROR:  invalid value for parameter "QUERY_TAG": "a"
+SHOW QUERY_TAG;
+  QUERY_TAG  
+-------------
+ aboba=aboba
+(1 row)
+
+SET QUERY_TAG TO "=aboba";
+ERROR:  invalid value for parameter "QUERY_TAG": "=aboba"
+SHOW QUERY_TAG;
+  QUERY_TAG  
+-------------
+ aboba=aboba
+(1 row)
+
+SET QUERY_TAG TO "a=a;";
+SHOW QUERY_TAG;
+ QUERY_TAG 
+-----------
+ a=a;
+(1 row)
+
+SET QUERY_TAG TO "a;";
+ERROR:  invalid value for parameter "QUERY_TAG": "a;"
+SHOW QUERY_TAG;
+ QUERY_TAG 
+-----------
+ a=a;
+(1 row)
+
+SET QUERY_TAG TO "123=123";
+SHOW QUERY_TAG;
+ QUERY_TAG 
+-----------
+ 123=123
+(1 row)
+
+SET QUERY_TAG TO ";";
+ERROR:  invalid value for parameter "QUERY_TAG": ";"
+SHOW QUERY_TAG;
+ QUERY_TAG 
+-----------
+ 123=123
+(1 row)
+
