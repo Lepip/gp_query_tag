@@ -2,22 +2,22 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use '''CREATE EXTENSION "query_tag"''' to load this file. \quit
 
-CREATE FUNCTION current_rsgroup() RETURNS text
-     AS 'query_tag', 'current_rsgroup'
+CREATE FUNCTION CURRENT_RESGROUP() RETURNS text
+     AS 'query_tag', 'current_resgroup'
      LANGUAGE C STRICT VOLATILE;
 
-CREATE OR REPLACE FUNCTION isTagInGuc(query_tag text)
+CREATE OR REPLACE FUNCTION is_tag_in_guc(query_tag text)
     RETURNS boolean
-    AS 'query_tag', 'isTagInGuc'
+    AS 'query_tag', 'is_tag_in_guc'
     LANGUAGE C STRICT VOLATILE;
 
 CREATE TABLE wlm_rules (
     serial_number   integer,
     rule_id         integer,
-    rsgname         name,
+    resgname        name,
     role            name,
     query_tag       text,
-    dest_rsg        name,
+    dest_resg       name,
     cpu_time        integer,
     running_time    integer,
     disk_io_md      integer,
@@ -45,7 +45,7 @@ CREATE TABLE gpcc_wlm_log_history (
     ssid                integer,
     ccnt                integer,
     action              integer,
-    rsgname             name,
+    resgname            name,
     role                name,
     status              text,
     fail_msg            text

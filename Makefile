@@ -1,4 +1,5 @@
-CFLAGS := ${CFLAGS} -Wall
+# It doesn't use CFLAGS in compiling, it uses some postgres magic instead :(
+CFLAGS := ${CFLAGS} -Wall -Werror
 
 EXTENSION = query_tag
 EXTVERSION = $(shell grep default_version $(EXTENSION).control | \

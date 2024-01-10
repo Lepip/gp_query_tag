@@ -15,12 +15,12 @@
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(current_rsgroup);
-PG_FUNCTION_INFO_V1(isTagInGuc);
+PG_FUNCTION_INFO_V1(current_resgroup);
+PG_FUNCTION_INFO_V1(is_tag_in_guc);
 
-Oid resgroup_assign_by_query_tag(void);
-Oid get_current_resgroup_id(void);
-bool check_query_tag_hook(char **, void **, GucSource);
+static Oid resgroup_assign_by_query_tag(void);
+static Oid current_resgroup_id(void);
+static bool check_query_tag_hook(char **, void **, GucSource);
 
 void _PG_init(void);
 void _PG_fini(void);
@@ -32,20 +32,20 @@ static const int MAX_QUERY_TAG_LENGTH = 100;
 
 static resgroup_assign_hook_type prev_hook = NULL;
 
-Datum isTagInGuc(PG_FUNCTION_ARGS) {
+Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
     text *query_tag = PG_GETARG_TEXT_P(0);
     char *query_tag_str = text_to_cstring(query_tag);
 
     const char *guc_query_tag_value =
         GetConfigOption("QUERY_TAG", false, false);
-    bool result = is_tag_in_guc(query_tag_str, guc_query_tag_value);
+    bool result = is_tag_in_guc_ctype(query_tag_str, guc_query_tag_value);
 
     pfree(query_tag_str);
 
     PG_RETURN_BOOL(result);
 }
 
-Oid resgroup_assign_by_query_tag(void) {
+static Oid resgroup_assign_by_query_tag(void) {
 
     Oid groupId = InvalidOid;
     if (prev_hook)
@@ -89,12 +89,12 @@ Oid resgroup_assign_by_query_tag(void) {
 
     char *rgname = GetResGroupNameForId(groupId);
     char *rolename = GetUserNameFromId(GetUserId());
-    elog(DEBUG3, "QUERY_TAG: Trying to fetch rules from wlm_rules, where rsgname = %s and rolename = %s",
+    elog(DEBUG3, "QUERY_TAG: Trying to fetch rules from wlm_rules, where resgname = %s and rolename = %s",
          rgname, rolename);
     int full_length = snprintf(
         query, sizeof(query),
-        "select rule_id, dest_rsg from wlm_rules where rsgname = '%s' and role "
-        "= '%s' and isTagInGuc(query_tag) order by order_id limit 1;",
+        "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
+        "= '%s' and is_tag_in_guc(query_tag) order by order_id limit 1;",
         rgname, rolename);
     if (full_length >= MAX_QUERY_SIZE) {
         elog(ERROR, "QUERY_TAG: failed, query tag too long");
@@ -124,7 +124,7 @@ Oid resgroup_assign_by_query_tag(void) {
     return groupId;
 }
 
-bool check_query_tag_hook(char **newvalue, void **extra, GucSource source) {
+static bool check_query_tag_hook(char **newvalue, void **extra, GucSource source) {
     elog(DEBUG3, "QUERY_TAG: Checking new tag");
     if (strlen(*newvalue) >= MAX_QUERY_TAG_LENGTH) {
         elog(DEBUG3, "QUERY_TAG: Tag too long, didn't set.");
@@ -137,13 +137,13 @@ bool check_query_tag_hook(char **newvalue, void **extra, GucSource source) {
     return true;
 }
 
-Oid get_current_resgroup_id() {
+static Oid current_resgroup_id() {
     Oid group_id = ResGroupGetGroupIdBySessionId(MySessionState->sessionId);
     return group_id;
 }
 
-Datum current_rsgroup(PG_FUNCTION_ARGS) {
-    Oid group_id = get_current_resgroup_id();
+Datum current_resgroup(PG_FUNCTION_ARGS) {
+    Oid group_id = current_resgroup_id();
     if (!OidIsValid(group_id))
         PG_RETURN_TEXT_P(cstring_to_text(NO_GROUP_MSG));
     char *resgroup_name = GetResGroupNameForId(group_id);
