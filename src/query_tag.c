@@ -19,7 +19,7 @@ PG_FUNCTION_INFO_V1(show_current_rsgroup);
 PG_FUNCTION_INFO_V1(isTagInGuc);
 
 Oid resgroup_assign_by_query_tag(void);
-Oid get_current_resgroup_id();
+Oid get_current_resgroup_id(void);
 bool check_query_tag_hook(char **, void **, GucSource);
 
 void _PG_init(void);
@@ -156,10 +156,10 @@ void _PG_init(void) {
     DefineCustomStringVariable(
         "QUERY_TAG", 
         "Tag for applying rules from wlm_rules",
-        NULL,                     /* длинное описание */
+        NULL,                     /* long description */
         &query_tag, 
-        "",                     /* начальное значение */
-        PGC_USERSET, 0,           /* флаги */
+        "",                       /* initial value */
+        PGC_USERSET, 0,           /* flags */
         check_query_tag_hook,     /* check hook */
         NULL,                     /* assign hook */
         NULL);                    /* show hook */
