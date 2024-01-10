@@ -152,7 +152,7 @@ char *copy_substr(const char *start, const char *end) {
     return ret;
 }
 
-bool is_tag_in_guc(const char *tag, const char *guc) {
+bool is_tag_in_guc_ctype(const char *tag, const char *guc) {
     List *parsed_guc = NIL;
     List *parsed_tag = NIL;
 
