@@ -33,14 +33,13 @@ static const int MAX_QUERY_TAG_LENGTH = 100;
 static resgroup_assign_hook_type prev_hook = NULL;
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
-    text *query_tag = PG_GETARG_TEXT_P(0);
-    char *query_tag_str = text_to_cstring(query_tag);
-
-    const char *guc_query_tag_value =
-        GetConfigOption("QUERY_TAG", false, false);
-    bool result = is_tag_in_guc_ctype(query_tag_str, guc_query_tag_value);
-
-    pfree(query_tag_str);
+    text *rule_query_tag = PG_GETARG_TEXT_P(0);
+    char *rule_query_tag_cstr = text_to_cstring(rule_query_tag);
+    bool result = is_tag_in_guc_ctype(rule_query_tag_cstr, query_tag);
+    
+    List *tags;
+    bool aboba = SplitIdentifierString(rule_query_tag_cstr, ';', &tags);
+    pfree(rule_query_tag_cstr);
 
     PG_RETURN_BOOL(result);
 }
