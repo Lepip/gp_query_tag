@@ -94,7 +94,7 @@ static Oid resgroup_assign_by_query_tag(void) {
     int full_length = snprintf(
         query, sizeof(query),
         "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
-        "= '%s' and is_tag_in_guc(query_tag) order by order_id limit 1;",
+        "= '%s' and active = TRUE and is_tag_in_guc(query_tag) order by order_id limit 1;",
         rgname, rolename);
     if (full_length >= MAX_QUERY_SIZE) {
         elog(ERROR, "QUERY_TAG: failed, query tag too long");
