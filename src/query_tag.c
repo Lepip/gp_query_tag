@@ -20,7 +20,7 @@ PG_FUNCTION_INFO_V1(is_tag_in_guc);
 
 static Oid resgroup_assign_by_query_tag(void);
 static Oid current_resgroup_id(void);
-static bool check_query_tag_hook(char **, void **, GucSource);
+static bool check_new_query_tag(char **, void **, GucSource);
 
 void _PG_init(void);
 void _PG_fini(void);
@@ -124,7 +124,7 @@ static Oid resgroup_assign_by_query_tag(void) {
     return groupId;
 }
 
-static bool check_query_tag_hook(char **newvalue, void **extra, GucSource source) {
+static bool check_new_query_tag(char **newvalue, void **extra, GucSource source) {
     elog(DEBUG3, "QUERY_TAG: Checking new tag");
     if (strlen(*newvalue) >= MAX_QUERY_TAG_LENGTH) {
         elog(DEBUG3, "QUERY_TAG: Tag too long, didn't set.");
@@ -160,7 +160,7 @@ void _PG_init(void) {
         &query_tag, 
         "",                       /* initial value */
         PGC_USERSET, 0,           /* flags */
-        check_query_tag_hook,     /* check hook */
+        check_new_query_tag,     /* check hook */
         NULL,                     /* assign hook */
         NULL);                    /* show hook */
     prev_hook = resgroup_assign_hook;
