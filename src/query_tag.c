@@ -26,9 +26,9 @@ static bool check_new_query_tag(char **, void **, GucSource);
 void _PG_init(void);
 void _PG_fini(void);
 
-static List *parsed_query_tags;
+static List *parsed_query_tags = NIL;
 
-static char *query_tag_mutable;
+static char *query_tag_mutable = NULL;
 static char *query_tag = NULL;
 const static char *NO_GROUP_MSG = "unknown";
 static const int MAX_QUERY_SIZE = 200;
@@ -42,18 +42,22 @@ Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
     List *rule_tags;
     bool split_ok;
     split_ok = split_tags(rule_query_tag_cstr, &rule_tags);
+    ListCell *rule_tag;
     if (!split_ok) {
+        foreach(rule_tag, rule_tags) {
+            list_free(lfirst(rule_tag));
+        }
+        list_free(rule_tags);
         pfree(rule_query_tag_cstr);
         return false;
     }
     bool result = is_tag_list_in_guc_list(rule_tags, parsed_query_tags);
     pfree(rule_query_tag_cstr);
-    ListCell *rule_tag;
     foreach(rule_tag, rule_tags) {
         list_free(lfirst(rule_tag));
     }
     list_free(rule_tags);
-    return true;
+    return result;
 }
 
 static Oid resgroup_assign_by_query_tag(void) {
