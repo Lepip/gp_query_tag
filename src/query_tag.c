@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "utils/syscache.h"
 #include "catalog/pg_authid.h"
+#include "cdb/cdbvars.h"
 
 PG_MODULE_MAGIC;
 
@@ -26,9 +27,7 @@ static bool check_new_query_tag(char **, void **, GucSource);
 void _PG_init(void);
 void _PG_fini(void);
 
-static List *parsed_query_tags = NIL;
-
-static char *query_tag_mutable = NULL;
+static ParsedTags *parsed_guc_tags;
 static char *query_tag = NULL;
 const static char *NO_GROUP_MSG = "unknown";
 static const int MAX_QUERY_SIZE = 200;
@@ -37,31 +36,25 @@ static const int MAX_QUERY_TAG_LENGTH = 100;
 static resgroup_assign_hook_type prev_hook = NULL;
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
+    elog(NOTICE, "Printing gucs in istaginguc");
+    print_parsed_tags(parsed_guc_tags);
     text *rule_query_tag = PG_GETARG_TEXT_P(0);
     char *rule_query_tag_cstr = text_to_cstring(rule_query_tag);
-    List *rule_tags;
-    bool split_ok;
-    split_ok = split_tags(rule_query_tag_cstr, &rule_tags);
-    ListCell *rule_tag;
-    if (!split_ok) {
-        foreach(rule_tag, rule_tags) {
-            list_free(lfirst(rule_tag));
-        }
-        list_free(rule_tags);
+    if (!rule_query_tag_cstr) {
+        PG_RETURN_BOOL(false);
+    }
+    ParsedTags *parsed_rule_tags = NULL;
+    bool ok = split_tags(rule_query_tag_cstr, &parsed_rule_tags);
+    if (!ok) {
         pfree(rule_query_tag_cstr);
-        return false;
+        PG_RETURN_BOOL(false);
     }
-    bool result = is_tag_list_in_guc_list(rule_tags, parsed_query_tags);
-    pfree(rule_query_tag_cstr);
-    foreach(rule_tag, rule_tags) {
-        list_free(lfirst(rule_tag));
-    }
-    list_free(rule_tags);
-    return result;
+    bool result = is_parsed_rule_in_parsed_guc(parsed_rule_tags, parsed_guc_tags);
+    free_parsed_tags(&parsed_rule_tags);
+    PG_RETURN_BOOL(result);
 }
 
 static Oid resgroup_assign_by_query_tag(void) {
-
     Oid groupId = InvalidOid;
     if (prev_hook)
         groupId = prev_hook();
@@ -78,7 +71,7 @@ static Oid resgroup_assign_by_query_tag(void) {
     strcpy(query, "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE "
                   "tablename = 'wlm_rules')");
     
-    elog(NOTICE, "QUERY_TAG: Entered resgroup hook.");
+    elog(DEBUG3, "QUERY_TAG: Entered resgroup hook.");
 
     int SPI_status;
     bool extension_created = false;
@@ -100,7 +93,7 @@ static Oid resgroup_assign_by_query_tag(void) {
         SPI_finish();
         return groupId;
     }
-    elog(NOTICE, "QUERY_TAG: Table wlm_rules exists, continue.");
+    elog(DEBUG3, "QUERY_TAG: Table wlm_rules exists, continue.");
 
     char *rgname = GetResGroupNameForId(groupId);
     char *rolename = GetUserNameFromId(GetUserId());
@@ -140,24 +133,40 @@ static Oid resgroup_assign_by_query_tag(void) {
 }
 
 static bool check_new_query_tag(char **newvalue, void **extra, GucSource source) {
+    if (Gp_role != GP_ROLE_DISPATCH) {
+        return true;
+    }
+    if (!*newvalue) {
+        return true;
+    }
+    if (query_tag && (strcmp(*newvalue, query_tag) == 0)) {
+        elog(NOTICE, "QUERY_TAG: Dolboeb blyat");
+        return true;
+    }
     elog(NOTICE, "QUERY_TAG: Checking new tag");
     if (strlen(*newvalue) >= MAX_QUERY_TAG_LENGTH) {
         elog(NOTICE, "QUERY_TAG: Tag too long, didn't set.");
         return false;
     }
-    List *parsed_new_query_tag;
-    char *new_query_tag_mutable = pstrdup(*newvalue);
-    if (!split_tags(new_query_tag_mutable, &parsed_new_query_tag)) {
-        list_free(parsed_new_query_tag);
-        pfree(new_query_tag_mutable);
+    ParsedTags *new_parsed_guc_tag = NULL;
+    bool ok = split_tags(*newvalue, &new_parsed_guc_tag);
+    if (!ok) {
+        elog(NOTICE, "QUERY_TAG: Tag didn't pass parsing.");
         return false;
     }
-    pfree(query_tag_mutable);
-    query_tag_mutable = new_query_tag_mutable;
-    list_free(parsed_query_tags);
-    parsed_query_tags = parsed_new_query_tag;
-    elog(NOTICE, "QUERY_TAG: All okay, set new tag.");
+    if (parsed_guc_tags == new_parsed_guc_tag) {
+        return true;
+    }
+    elog(NOTICE, "QUERY_TAG: Free old one: %d", parsed_guc_tags);
+    free_parsed_tags(&parsed_guc_tags);
+    elog(NOTICE, "QUERY_TAG: Setup new one: %d", new_parsed_guc_tag);
+    parsed_guc_tags = new_parsed_guc_tag;
+    print_parsed_tags(parsed_guc_tags);
     return true;
+}
+
+static void assign_query_tag(const char *newvalue, void *extra) {
+    elog(NOTICE, "heh, %d", (int)Gp_role);
 }
 
 static Oid current_resgroup_id() {
@@ -175,6 +184,11 @@ Datum current_resgroup(PG_FUNCTION_ARGS) {
     PG_RETURN_TEXT_P(cstring_to_text(resgroup_name));
 }
 
+static const char *show_query_tag(void) {
+    print_parsed_tags(parsed_guc_tags);
+    return query_tag;
+}
+
 void _PG_init(void) {
     DefineCustomStringVariable(
         "QUERY_TAG", 
@@ -184,8 +198,8 @@ void _PG_init(void) {
         "",                       /* initial value */
         PGC_USERSET, 0,           /* flags */
         check_new_query_tag,      /* check hook */
-        NULL,                     /* assign hook */
-        NULL);                    /* show hook */
+        assign_query_tag,                     /* assign hook */
+        show_query_tag);                    /* show hook */
     prev_hook = resgroup_assign_hook;
     resgroup_assign_hook = resgroup_assign_by_query_tag;
 }

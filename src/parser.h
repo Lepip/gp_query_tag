@@ -1,4 +1,11 @@
 #include "nodes/pg_list.h"
 
-bool split_tags(char *tags, List **splitted);
-bool is_tag_list_in_guc_list(List *rule_tags, List *guc_tags);
+typedef struct ParsedTags {
+    char *tags_mutable;
+    List *parsed_tags;
+} ParsedTags;
+
+bool split_tags(const char *tags, ParsedTags **parced);
+bool is_parsed_rule_in_parsed_guc(ParsedTags *parced_rule, ParsedTags *parced_guc);
+void free_parsed_tags(ParsedTags **parced);
+void print_parsed_tags(ParsedTags *parsed);

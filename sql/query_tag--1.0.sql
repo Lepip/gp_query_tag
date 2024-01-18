@@ -6,10 +6,10 @@ CREATE FUNCTION CURRENT_RESGROUP() RETURNS text
      AS 'query_tag', 'current_resgroup'
      LANGUAGE C STRICT VOLATILE;
 
-CREATE OR REPLACE FUNCTION is_tag_in_guc(query_tag text)
+CREATE FUNCTION is_tag_in_guc(query_tag text)
     RETURNS boolean
     AS 'query_tag', 'is_tag_in_guc'
-    LANGUAGE C STRICT VOLATILE;
+    LANGUAGE C STRICT VOLATILE EXECUTE ON MASTER;
 
 CREATE TABLE wlm_rules (
     serial_number   integer,
