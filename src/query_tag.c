@@ -36,7 +36,7 @@ static const int MAX_QUERY_TAG_LENGTH = 100;
 static resgroup_assign_hook_type prev_hook = NULL;
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
-    elog(NOTICE, "Printing gucs in istaginguc");
+    elog(DEBUG4, "Printing gucs in istaginguc");
     print_parsed_tags(parsed_guc_tags);
     text *rule_query_tag = PG_GETARG_TEXT_P(0);
     char *rule_query_tag_cstr = text_to_cstring(rule_query_tag);
@@ -89,7 +89,7 @@ static Oid resgroup_assign_by_query_tag(void) {
         }
     }
     if (!extension_created) {
-        elog(NOTICE, "QUERY_TAG: Table wlm_rules doesn't exist, abort.");
+        elog(DEBUG3, "QUERY_TAG: Table wlm_rules doesn't exist, abort.");
         SPI_finish();
         return groupId;
     }
@@ -97,7 +97,7 @@ static Oid resgroup_assign_by_query_tag(void) {
 
     char *rgname = GetResGroupNameForId(groupId);
     char *rolename = GetUserNameFromId(GetUserId());
-    elog(NOTICE, "QUERY_TAG: Trying to fetch rules from wlm_rules, where resgname = %s and rolename = %s",
+    elog(DEBUG3, "QUERY_TAG: Trying to fetch rules from wlm_rules, where resgname = %s and rolename = %s",
          rgname, rolename);
     int full_length = snprintf(
         query, sizeof(query),
@@ -122,51 +122,71 @@ static Oid resgroup_assign_by_query_tag(void) {
             SPI_finish();
             return groupId;
         }
-        elog(NOTICE, "QUERY_TAG: set resgroup to: %s, %d", crgname,
+        elog(DEBUG1, "QUERY_TAG: set resgroup to: %s, %d", crgname,
              GetResGroupIdForName(crgname));
         SPI_finish();
         return GetResGroupIdForName(crgname);
     }
-    elog(NOTICE, "QUERY_TAG: didn't find matching rules for the current query. Keeping original groupId.");
+    elog(DEBUG3, "QUERY_TAG: didn't find matching rules for the current query. Keeping original groupId.");
     SPI_finish();
     return groupId;
 }
 
 static bool check_new_query_tag(char **newvalue, void **extra, GucSource source) {
-    if (Gp_role != GP_ROLE_DISPATCH) {
-        return true;
-    }
     if (!*newvalue) {
+        free_parsed_tags(&parsed_guc_tags);
+        parsed_guc_tags = NULL;
         return true;
     }
     if (query_tag && (strcmp(*newvalue, query_tag) == 0)) {
-        elog(NOTICE, "QUERY_TAG: Dolboeb blyat");
         return true;
     }
-    elog(NOTICE, "QUERY_TAG: Checking new tag");
+    elog(DEBUG3, "QUERY_TAG: Checking new tag");
     if (strlen(*newvalue) >= MAX_QUERY_TAG_LENGTH) {
-        elog(NOTICE, "QUERY_TAG: Tag too long, didn't set.");
+        elog(DEBUG3, "QUERY_TAG: Tag too long, didn't set.");
         return false;
     }
     ParsedTags *new_parsed_guc_tag = NULL;
     bool ok = split_tags(*newvalue, &new_parsed_guc_tag);
     if (!ok) {
-        elog(NOTICE, "QUERY_TAG: Tag didn't pass parsing.");
+        elog(DEBUG3, "QUERY_TAG: Tag didn't pass parsing.");
         return false;
     }
     if (parsed_guc_tags == new_parsed_guc_tag) {
+        elog(DEBUG3, "Why... (This like shouldn't ever occur), %d", (int)parsed_guc_tags);
         return true;
     }
-    elog(NOTICE, "QUERY_TAG: Free old one: %d", parsed_guc_tags);
-    free_parsed_tags(&parsed_guc_tags);
-    elog(NOTICE, "QUERY_TAG: Setup new one: %d", new_parsed_guc_tag);
+    elog(DEBUG3, "QUERY_TAG: Free old one: %d", parsed_guc_tags);
+    if (parsed_guc_tags) {
+        free_parsed_tags(&parsed_guc_tags);
+        parsed_guc_tags = NULL;
+    }
+    elog(DEBUG3, "QUERY_TAG: Setup new one: %d", new_parsed_guc_tag);
     parsed_guc_tags = new_parsed_guc_tag;
     print_parsed_tags(parsed_guc_tags);
     return true;
 }
 
+int *stuff = NULL;
+
 static void assign_query_tag(const char *newvalue, void *extra) {
-    elog(NOTICE, "heh, %d", (int)Gp_role);
+    /*elog(NOTICE, "heh, %d", (int)Gp_role);
+    MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
+    elog(NOTICE, "stuff: %d", (int)stuff);
+    if (stuff) {
+        elog(NOTICE, "stuff value: %d", *stuff);
+    } else {
+        elog(NOTICE, "stuff value: NULL");
+    }
+    int *old_stuff = stuff;
+    stuff = palloc(sizeof(*stuff));
+    *stuff = (int)stuff;
+    elog(NOTICE, "new_stuff: %d", (int)stuff);
+    elog(NOTICE, "new_stuff value: %d", *stuff);
+    if (old_stuff != stuff && old_stuff != NULL) {
+        pfree(old_stuff);
+    }
+    MemoryContextSwitchTo(old_context);*/
 }
 
 static Oid current_resgroup_id() {

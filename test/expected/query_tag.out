@@ -18,18 +18,19 @@ SHOW QUERY_TAG;
 (1 row)
 
 SET QUERY_TAG TO "a=a;";
+ERROR:  invalid value for parameter "QUERY_TAG": "a=a;"
 SHOW QUERY_TAG;
- QUERY_TAG 
------------
- a=a;
+  QUERY_TAG  
+-------------
+ aboba=aboba
 (1 row)
 
 SET QUERY_TAG TO "a;";
 ERROR:  invalid value for parameter "QUERY_TAG": "a;"
 SHOW QUERY_TAG;
- QUERY_TAG 
------------
- a=a;
+  QUERY_TAG  
+-------------
+ aboba=aboba
 (1 row)
 
 SET QUERY_TAG TO "123=123";
@@ -50,9 +51,7 @@ SHOW QUERY_TAG;
 -- complex behaviour
 -- should set to rgroup1
 CREATE RESOURCE GROUP rgroup1 WITH (CPU_RATE_LIMIT=20, MEMORY_LIMIT=25, MEMORY_SPILL_RATIO=20);
-ERROR:  resource group "rgroup1" already exists
 CREATE RESOURCE GROUP rgroup2 WITH (CPU_RATE_LIMIT=20, MEMORY_LIMIT=25, MEMORY_SPILL_RATIO=20);
-ERROR:  resource group "rgroup2" already exists
 INSERT INTO wlm_rules (resgname, role, dest_resg, order_id, query_tag, active)
     VALUES ('admin_group', 'clepip', 'rgroup1', 3, 'group=rgroup1', TRUE);
 INSERT INTO wlm_rules (resgname, role, dest_resg, order_id, query_tag, active)

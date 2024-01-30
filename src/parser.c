@@ -19,7 +19,7 @@ bool split_tags(const char *tags, ParsedTags **parced) {
     MemoryContext oldctx = MemoryContextSwitchTo(TopMemoryContext);
     *parced = palloc(sizeof(**parced));
     if (!tags) {
-        elog(ERROR, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAmoGUS");
+        elog(ERROR, "QUERY_TAG: there's a NULL query_tag somewhere.");
     }
     char *tags_mutable = pstrdup(tags);
     List *almost_parced_tags = NIL;
@@ -57,9 +57,9 @@ bool split_tags(const char *tags, ParsedTags **parced) {
 }
 
 bool is_parsed_rule_in_parsed_guc(ParsedTags *rule_tags, ParsedTags *guc_tags) {
-    elog(NOTICE, "Printing guc:");
+    elog(DEBUG4, "Printing guc:");
     print_parsed_tags(guc_tags);
-    elog(NOTICE, "Printing rule:");
+    elog(DEBUG4, "Printing rule:");
     print_parsed_tags(rule_tags);
     ListCell *guc_cell, *tag_cell;
     foreach (tag_cell, rule_tags->parsed_tags) {
@@ -85,25 +85,25 @@ void free_parsed_tags(ParsedTags **parced) {
         free_double_list(&(*parced)->parsed_tags);
         if ((*parced)->tags_mutable)
             pfree((*parced)->tags_mutable);
-        elog(NOTICE, "FREED: %d", (int)*parced);
+        elog(DEBUG4, "FREED: %d", (int)*parced);
         pfree(*parced);
         *parced = NULL;
     }
 }
 
 void print_parsed_tags(ParsedTags *parsed) {
-    elog(NOTICE, "Printing tags:");
+    elog(DEBUG4, "Printing tags:");
     ListCell *current_cell;
     ListCell *current_tag;
     int id = 0;
     if (parsed) {
         foreach(current_cell, parsed->parsed_tags) {
             foreach(current_tag, lfirst(current_cell)) {
-                elog(NOTICE, "%d: %s", id, lfirst(current_tag));
+                elog(DEBUG4, "%d: %s", id, lfirst(current_tag));
                 id++;
             }
         }
     } else {
-        elog(NOTICE, "Null, lol");
+        elog(DEBUG4, "Null, lol");
     }
 }

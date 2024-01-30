@@ -6,7 +6,7 @@ CREATE FUNCTION CURRENT_RESGROUP() RETURNS text
      AS 'query_tag', 'current_resgroup'
      LANGUAGE C STRICT VOLATILE;
 
-CREATE FUNCTION is_tag_in_guc(query_tag text)
+CREATE FUNCTION is_tag_in_guc(text)
     RETURNS boolean
     AS 'query_tag', 'is_tag_in_guc'
     LANGUAGE C STRICT VOLATILE EXECUTE ON MASTER;
