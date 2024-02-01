@@ -14,6 +14,7 @@
 #include "utils/syscache.h"
 #include "catalog/pg_authid.h"
 #include "cdb/cdbvars.h"
+#include "optimizer/planner.h"
 
 PG_MODULE_MAGIC;
 
@@ -34,6 +35,42 @@ static const int MAX_QUERY_SIZE = 200;
 static const int MAX_QUERY_TAG_LENGTH = 100;
 
 static resgroup_assign_hook_type prev_hook = NULL;
+static planner_hook_type prev_planner_hook = NULL;
+
+PlannedStmt *
+kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
+{
+    PlannedStmt *result = NULL;
+    result = prev_planner_hook(parse, cursorOptions, boundParams);
+
+    int n_moves = result->nMotionNodes;
+    int SPI_status;
+    StringInfoData query;
+    StringInfoData cost_query;
+    char *rgname = GetResGroupNameForId(current_resgroup_id());
+    char *rolename = GetUserNameFromId(GetUserId());
+    initStringInfo(&query);
+    initStringInfo(&cost_query);
+    float cost = 0; // TODO
+    if (result->planGen == PLANGEN_PLANNER) {
+        appendStringInfo(&cost_query, "planner_cost <= %d", cost);
+    } else {
+        appendStringInfo(&cost_query, "orca_cost <= %d", cost);
+    }
+    appendStringInfo(&query, "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
+        "= '%s' and active = TRUE and %s and is_tag_in_guc(query_tag) and kill_rule = TRUE order by order_id limit 1;", 
+        rgname, rolename, cost_query.data);
+
+    SPI_status = SPI_execute(query.data, false, 0);
+    if (SPI_status < 0) {
+        SPI_finish();
+        elog(ERROR, "QUERY_TAG: Failed to execute SQL query: %s", query.data);
+    }
+    if (SPI_processed > 0) {
+        elog(ERROR, "QUERY_TAG: there's a kill_rule. Stopped");
+    }
+    return result;
+}
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
     elog(DEBUG4, "Printing gucs in istaginguc");
@@ -102,7 +139,7 @@ static Oid resgroup_assign_by_query_tag(void) {
     int full_length = snprintf(
         query, sizeof(query),
         "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
-        "= '%s' and active = TRUE and is_tag_in_guc(query_tag) order by order_id limit 1;",
+        "= '%s' and active = TRUE and is_tag_in_guc(query_tag) and kill_rule = FALSE order by order_id limit 1;",
         rgname, rolename);
     if (full_length >= MAX_QUERY_SIZE) {
         elog(ERROR, "QUERY_TAG: failed, query tag too long");
@@ -221,7 +258,13 @@ void _PG_init(void) {
         assign_query_tag,                     /* assign hook */
         show_query_tag);                    /* show hook */
     prev_hook = resgroup_assign_hook;
+    if (planner_hook) {
+        prev_planner_hook = planner_hook;
+    } else {
+        prev_planner_hook = standard_planner;
+    }
     resgroup_assign_hook = resgroup_assign_by_query_tag;
+    planner_hook = kill_rules_manager;
 }
 
 void _PG_fini(void) {
