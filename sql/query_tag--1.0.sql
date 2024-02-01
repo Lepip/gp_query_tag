@@ -32,7 +32,8 @@ CREATE TABLE wlm_rules (
     spill_file_mb   int,
     cpuskew_percent int,
     cpuskew_duration_sec int,
-    order_id        int not null
+    order_id        int not null,
+    kill_rule       boolean
 );
 
 CREATE TABLE gpcc_wlm_log_history (
