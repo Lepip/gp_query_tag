@@ -1,5 +1,5 @@
 # It doesn't use CFLAGS in compiling, it uses some postgres magic instead :(
-CFLAGS := ${CFLAGS} -Wall -Werror
+override CFLAGS = -Wall -Wmissing-prototypes -Wpointer-arith -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-but-set-variable -Wno-address -Wno-format-truncation -Wno-stringop-truncation -g -ggdb -std=gnu99 -Werror=uninitialized -Werror=implicit-function-declaration -DGPBUILD
 
 EXTENSION = query_tag
 EXTVERSION = $(shell grep default_version $(EXTENSION).control | \

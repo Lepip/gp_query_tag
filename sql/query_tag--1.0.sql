@@ -6,7 +6,7 @@ CREATE FUNCTION CURRENT_RESGROUP() RETURNS text
      AS 'query_tag', 'current_resgroup'
      LANGUAGE C STRICT VOLATILE;
 
-CREATE OR REPLACE FUNCTION is_tag_in_guc(query_tag text)
+CREATE FUNCTION is_tag_in_guc(text)
     RETURNS boolean
     AS 'query_tag', 'is_tag_in_guc'
     LANGUAGE C STRICT VOLATILE;
@@ -32,7 +32,8 @@ CREATE TABLE wlm_rules (
     spill_file_mb   int,
     cpuskew_percent int,
     cpuskew_duration_sec int,
-    order_id        int not null
+    order_id        int not null,
+    kill_rule       boolean
 );
 
 CREATE TABLE gpcc_wlm_log_history (

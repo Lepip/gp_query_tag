@@ -1,5 +1,7 @@
 #include <postgres.h>
 
+#include <utils/palloc.h>
+#include <utils/elog.h>
 #include <miscadmin.h>
 #include <utils/builtins.h>
 #include <utils/guc.h>
@@ -12,6 +14,9 @@
 #include "parser.h"
 #include "utils/syscache.h"
 #include "catalog/pg_authid.h"
+#include "cdb/cdbvars.h"
+#include "optimizer/planner.h"
+#include <assert.h>
 
 PG_MODULE_MAGIC;
 
@@ -25,28 +30,81 @@ static bool check_new_query_tag(char **, void **, GucSource);
 void _PG_init(void);
 void _PG_fini(void);
 
+static ParsedTags *parsed_guc_tags;
 static char *query_tag = NULL;
 const static char *NO_GROUP_MSG = "unknown";
 static const int MAX_QUERY_SIZE = 200;
 static const int MAX_QUERY_TAG_LENGTH = 100;
 
 static resgroup_assign_hook_type prev_hook = NULL;
+static planner_hook_type prev_planner_hook = NULL;
+
+PlannedStmt *
+kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
+{
+    PlannedStmt *result = NULL;
+    result = prev_planner_hook(parse, cursorOptions, boundParams);
+    return result;
+
+    // under construction
+
+    int n_moves = result->nMotionNodes;
+    int SPI_status = -1;
+    StringInfoData query;
+    StringInfoData cost_query;
+    char *rgname = GetResGroupNameForId(current_resgroup_id());
+    char *rolename = GetUserNameFromId(GetUserId());
+    initStringInfo(&query);
+    initStringInfo(&cost_query);
+    double cost = result->planTree->total_cost;
+    elog(NOTICE, "Cost: %f", cost);
+    if (result->planGen == PLANGEN_PLANNER) {
+        appendStringInfo(&cost_query, "planner_cost <= %f", cost);
+    } else {
+        appendStringInfo(&cost_query, "orca_cost <= %f", cost);
+    }
+    appendStringInfo(&query, "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
+        "= '%s' and active = TRUE and %s and is_tag_in_guc(query_tag) and kill_rule = TRUE order by order_id limit 1;", 
+        rgname, rolename, cost_query.data);
+    PG_TRY();
+    {
+        SPI_status = SPI_execute(query.data, false, 0);
+    }
+    PG_CATCH();
+    {
+        SPI_status = -1;
+    }
+    PG_END_TRY();
+
+    if (SPI_status < 0) {
+        SPI_finish();
+        elog(DEBUG3, "QUERY_TAG: query failed in the kill rule processor.");
+        return result;
+    }
+    if (SPI_processed > 0) {
+        elog(ERROR, "QUERY_TAG: there's a kill_rule. Stopped");
+    }
+    return result;
+}
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
-    text *query_tag = PG_GETARG_TEXT_P(0);
-    char *query_tag_str = text_to_cstring(query_tag);
-
-    const char *guc_query_tag_value =
-        GetConfigOption("QUERY_TAG", false, false);
-    bool result = is_tag_in_guc_ctype(query_tag_str, guc_query_tag_value);
-
-    pfree(query_tag_str);
-
+    text *rule_query_tag = PG_GETARG_TEXT_P(0);
+    char *rule_query_tag_cstr = text_to_cstring(rule_query_tag);
+    if (!rule_query_tag_cstr) {
+        PG_RETURN_BOOL(false);
+    }
+    ParsedTags *parsed_rule_tags = NULL;
+    bool ok = split_tags(rule_query_tag_cstr, &parsed_rule_tags);
+    if (!ok) {
+        pfree(rule_query_tag_cstr);
+        PG_RETURN_BOOL(false);
+    }
+    bool result = is_parsed_rule_in_parsed_guc(parsed_rule_tags, parsed_guc_tags);
+    free_parsed_tags(&parsed_rule_tags);
     PG_RETURN_BOOL(result);
 }
 
 static Oid resgroup_assign_by_query_tag(void) {
-
     Oid groupId = InvalidOid;
     if (prev_hook)
         groupId = prev_hook();
@@ -94,7 +152,7 @@ static Oid resgroup_assign_by_query_tag(void) {
     int full_length = snprintf(
         query, sizeof(query),
         "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
-        "= '%s' and active = TRUE and is_tag_in_guc(query_tag) order by order_id limit 1;",
+        "= '%s' and active = TRUE and is_tag_in_guc(query_tag) and kill_rule = FALSE order by order_id limit 1;",
         rgname, rolename);
     if (full_length >= MAX_QUERY_SIZE) {
         elog(ERROR, "QUERY_TAG: failed, query tag too long");
@@ -114,7 +172,7 @@ static Oid resgroup_assign_by_query_tag(void) {
             SPI_finish();
             return groupId;
         }
-        elog(DEBUG3, "QUERY_TAG: set resgroup to: %s, %d", crgname,
+        elog(DEBUG1, "QUERY_TAG: set resgroup to: %s, %d", crgname,
              GetResGroupIdForName(crgname));
         SPI_finish();
         return GetResGroupIdForName(crgname);
@@ -125,15 +183,32 @@ static Oid resgroup_assign_by_query_tag(void) {
 }
 
 static bool check_new_query_tag(char **newvalue, void **extra, GucSource source) {
+    if (!*newvalue) {
+        free_parsed_tags(&parsed_guc_tags);
+        parsed_guc_tags = NULL;
+        return true;
+    }
+    if (query_tag && (strcmp(*newvalue, query_tag) == 0)) {
+        return true;
+    }
     elog(DEBUG3, "QUERY_TAG: Checking new tag");
     if (strlen(*newvalue) >= MAX_QUERY_TAG_LENGTH) {
         elog(DEBUG3, "QUERY_TAG: Tag too long, didn't set.");
         return false;
     }
-    if (!is_safe(*newvalue)) {
+    ParsedTags *new_parsed_guc_tag = NULL;
+    bool ok = split_tags(*newvalue, &new_parsed_guc_tag);
+    if (!ok) {
+        elog(DEBUG3, "QUERY_TAG: Tag didn't pass parsing.");
         return false;
     }
-    elog(DEBUG3, "QUERY_TAG: All okay, set new tag.");
+    // if they are the same, it means, that memory contexts messed up
+    assert(parsed_guc_tags != new_parsed_guc_tag);
+    if (parsed_guc_tags) {
+        free_parsed_tags(&parsed_guc_tags);
+        parsed_guc_tags = NULL;
+    }
+    parsed_guc_tags = new_parsed_guc_tag;
     return true;
 }
 
@@ -160,11 +235,17 @@ void _PG_init(void) {
         &query_tag, 
         "",                       /* initial value */
         PGC_USERSET, 0,           /* flags */
-        check_new_query_tag,     /* check hook */
+        check_new_query_tag,      /* check hook */
         NULL,                     /* assign hook */
         NULL);                    /* show hook */
     prev_hook = resgroup_assign_hook;
+    if (planner_hook) {
+        prev_planner_hook = planner_hook;
+    } else {
+        prev_planner_hook = standard_planner;
+    }
     resgroup_assign_hook = resgroup_assign_by_query_tag;
+    planner_hook = kill_rules_manager;
 }
 
 void _PG_fini(void) {

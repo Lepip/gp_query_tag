@@ -1,12 +1,10 @@
 #include "nodes/pg_list.h"
 
-typedef struct tpair{
-    char *key;
-    char *value;
-} tag_pair;
+typedef struct ParsedTags {
+    char *tags_mutable;
+    List *parsed_tags;
+} ParsedTags;
 
-bool is_safe(const char *guc);
-bool parse_tags(const char *guc, List **parsed);
-void tag_list_free(List **tag_list);
-char *copy_substr(const char *start, const char *end);
-bool is_tag_in_guc_ctype(const char *tag, const char *guc);
+bool split_tags(const char *tags, ParsedTags **parsed);
+bool is_parsed_rule_in_parsed_guc(ParsedTags *parsed_rule, ParsedTags *parsed_guc);
+void free_parsed_tags(ParsedTags **parsed);
