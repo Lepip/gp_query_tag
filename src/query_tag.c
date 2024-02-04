@@ -1,6 +1,7 @@
 #include <postgres.h>
 
 #include <utils/palloc.h>
+#include <utils/elog.h>
 #include <miscadmin.h>
 #include <utils/builtins.h>
 #include <utils/guc.h>
@@ -15,6 +16,7 @@
 #include "catalog/pg_authid.h"
 #include "cdb/cdbvars.h"
 #include "optimizer/planner.h"
+#include <assert.h>
 
 PG_MODULE_MAGIC;
 
@@ -42,29 +44,42 @@ kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
 {
     PlannedStmt *result = NULL;
     result = prev_planner_hook(parse, cursorOptions, boundParams);
+    return result;
+
+    // under construction
 
     int n_moves = result->nMotionNodes;
-    int SPI_status;
+    int SPI_status = -1;
     StringInfoData query;
     StringInfoData cost_query;
     char *rgname = GetResGroupNameForId(current_resgroup_id());
     char *rolename = GetUserNameFromId(GetUserId());
     initStringInfo(&query);
     initStringInfo(&cost_query);
-    float cost = 0; // TODO
+    double cost = result->planTree->total_cost;
+    elog(NOTICE, "Cost: %f", cost);
     if (result->planGen == PLANGEN_PLANNER) {
-        appendStringInfo(&cost_query, "planner_cost <= %d", cost);
+        appendStringInfo(&cost_query, "planner_cost <= %f", cost);
     } else {
-        appendStringInfo(&cost_query, "orca_cost <= %d", cost);
+        appendStringInfo(&cost_query, "orca_cost <= %f", cost);
     }
     appendStringInfo(&query, "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
         "= '%s' and active = TRUE and %s and is_tag_in_guc(query_tag) and kill_rule = TRUE order by order_id limit 1;", 
         rgname, rolename, cost_query.data);
+    PG_TRY();
+    {
+        SPI_status = SPI_execute(query.data, false, 0);
+    }
+    PG_CATCH();
+    {
+        SPI_status = -1;
+    }
+    PG_END_TRY();
 
-    SPI_status = SPI_execute(query.data, false, 0);
     if (SPI_status < 0) {
         SPI_finish();
-        elog(ERROR, "QUERY_TAG: Failed to execute SQL query: %s", query.data);
+        elog(DEBUG3, "QUERY_TAG: query failed in the kill rule processor.");
+        return result;
     }
     if (SPI_processed > 0) {
         elog(ERROR, "QUERY_TAG: there's a kill_rule. Stopped");
@@ -73,8 +88,6 @@ kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
 }
 
 Datum is_tag_in_guc(PG_FUNCTION_ARGS) {
-    elog(DEBUG4, "Printing gucs in istaginguc");
-    print_parsed_tags(parsed_guc_tags);
     text *rule_query_tag = PG_GETARG_TEXT_P(0);
     char *rule_query_tag_cstr = text_to_cstring(rule_query_tag);
     if (!rule_query_tag_cstr) {
@@ -189,41 +202,14 @@ static bool check_new_query_tag(char **newvalue, void **extra, GucSource source)
         elog(DEBUG3, "QUERY_TAG: Tag didn't pass parsing.");
         return false;
     }
-    if (parsed_guc_tags == new_parsed_guc_tag) {
-        elog(DEBUG3, "Why... (This like shouldn't ever occur), %d", (int)parsed_guc_tags);
-        return true;
-    }
-    elog(DEBUG3, "QUERY_TAG: Free old one: %d", parsed_guc_tags);
+    // if they are the same, it means, that memory contexts messed up
+    assert(parsed_guc_tags != new_parsed_guc_tag);
     if (parsed_guc_tags) {
         free_parsed_tags(&parsed_guc_tags);
         parsed_guc_tags = NULL;
     }
-    elog(DEBUG3, "QUERY_TAG: Setup new one: %d", new_parsed_guc_tag);
     parsed_guc_tags = new_parsed_guc_tag;
-    print_parsed_tags(parsed_guc_tags);
     return true;
-}
-
-int *stuff = NULL;
-
-static void assign_query_tag(const char *newvalue, void *extra) {
-    /*elog(NOTICE, "heh, %d", (int)Gp_role);
-    MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
-    elog(NOTICE, "stuff: %d", (int)stuff);
-    if (stuff) {
-        elog(NOTICE, "stuff value: %d", *stuff);
-    } else {
-        elog(NOTICE, "stuff value: NULL");
-    }
-    int *old_stuff = stuff;
-    stuff = palloc(sizeof(*stuff));
-    *stuff = (int)stuff;
-    elog(NOTICE, "new_stuff: %d", (int)stuff);
-    elog(NOTICE, "new_stuff value: %d", *stuff);
-    if (old_stuff != stuff && old_stuff != NULL) {
-        pfree(old_stuff);
-    }
-    MemoryContextSwitchTo(old_context);*/
 }
 
 static Oid current_resgroup_id() {
@@ -241,11 +227,6 @@ Datum current_resgroup(PG_FUNCTION_ARGS) {
     PG_RETURN_TEXT_P(cstring_to_text(resgroup_name));
 }
 
-static const char *show_query_tag(void) {
-    print_parsed_tags(parsed_guc_tags);
-    return query_tag;
-}
-
 void _PG_init(void) {
     DefineCustomStringVariable(
         "QUERY_TAG", 
@@ -255,8 +236,8 @@ void _PG_init(void) {
         "",                       /* initial value */
         PGC_USERSET, 0,           /* flags */
         check_new_query_tag,      /* check hook */
-        assign_query_tag,                     /* assign hook */
-        show_query_tag);                    /* show hook */
+        NULL,                     /* assign hook */
+        NULL);                    /* show hook */
     prev_hook = resgroup_assign_hook;
     if (planner_hook) {
         prev_planner_hook = planner_hook;
