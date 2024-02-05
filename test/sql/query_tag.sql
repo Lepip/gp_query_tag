@@ -58,3 +58,6 @@ INSERT INTO wlm_rules (resgname, role, dest_resg, order_id, query_tag, active, k
 
 SET QUERY_TAG TO "group=cancelled";
 SELECT CURRENT_RESGROUP();
+
+INSERT INTO wlm_rules (resgname, role, dest_resg, order_id, query_tag, active, kill_rule, planner_cost, orca_cost)
+    VALUES ('admin_group', 'clepip', 'rgroup1', 2, 'group=cancelled', FALSE, TRUE, 1000, 1000);

@@ -5,8 +5,9 @@
 #include <miscadmin.h>
 #include <utils/builtins.h>
 #include <utils/guc.h>
-#include "fmgr.h"
 #include <utils/resgroup.h>
+#include "fmgr.h"
+#include "utils/resgroup-ops.h"
 #include <commands/resgroupcmds.h>
 #include <executor/spi.h>
 #include "access/xact.h"
@@ -23,6 +24,8 @@ PG_MODULE_MAGIC;
 PG_FUNCTION_INFO_V1(current_resgroup);
 PG_FUNCTION_INFO_V1(is_tag_in_guc);
 
+PlannedStmt *
+kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams);
 static Oid resgroup_assign_by_query_tag(void);
 static Oid current_resgroup_id(void);
 static bool check_new_query_tag(char **, void **, GucSource);
@@ -39,30 +42,55 @@ static const int MAX_QUERY_TAG_LENGTH = 100;
 static resgroup_assign_hook_type prev_hook = NULL;
 static planner_hook_type prev_planner_hook = NULL;
 
+struct ResGroupSlotData
+{
+	Oid				groupId;
+	void	        *group;		/* pointer to the group */
+
+	int32			memQuota;	/* memory quota of current slot */
+	int32			memUsage;	/* total memory usage of procs belongs to this slot */
+	int				nProcs;		/* number of procs in this slot */
+
+	void	        *next;
+
+	ResGroupCaps	caps;
+};
+
+typedef struct ResGroupSlotData ResGroupSlotData;
+
 PlannedStmt *
 kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
 {
+    
     PlannedStmt *result = NULL;
     result = prev_planner_hook(parse, cursorOptions, boundParams);
-    return result;
-
-    // under construction
+    if (MySessionState == NULL) {
+        return result;
+    }
+    void * slot = (MySessionState->resGroupSlot);
+    ResGroupSlotData * slot_data = (ResGroupSlotData *)(slot);
+    if (slot_data == NULL) {
+        return result;
+    }
 
     int n_moves = result->nMotionNodes;
     int SPI_status = -1;
     StringInfoData query;
     StringInfoData cost_query;
-    char *rgname = GetResGroupNameForId(current_resgroup_id());
+    
+    char *rgname = GetResGroupNameForId(slot_data->groupId);
     char *rolename = GetUserNameFromId(GetUserId());
     initStringInfo(&query);
     initStringInfo(&cost_query);
     double cost = result->planTree->total_cost;
-    elog(NOTICE, "Cost: %f", cost);
+    elog(DEBUG4, "KILL RULE: Cost: %f", cost);
     if (result->planGen == PLANGEN_PLANNER) {
         appendStringInfo(&cost_query, "planner_cost <= %f", cost);
-    } else {
+    }
+    if (result->planGen == PLANGEN_OPTIMIZER) {
         appendStringInfo(&cost_query, "orca_cost <= %f", cost);
     }
+    assert(cost_query.data != NULL);
     appendStringInfo(&query, "select rule_id, dest_resg from wlm_rules where resgname = '%s' and role "
         "= '%s' and active = TRUE and %s and is_tag_in_guc(query_tag) and kill_rule = TRUE order by order_id limit 1;", 
         rgname, rolename, cost_query.data);
@@ -75,7 +103,9 @@ kill_rules_manager(Query *parse, int cursorOptions, ParamListInfo boundParams)
         SPI_status = -1;
     }
     PG_END_TRY();
-
+    elog(NOTICE, "The executed query in kill rule: %s", query.data);
+    pfree(query.data);
+    pfree(cost_query.data);
     if (SPI_status < 0) {
         SPI_finish();
         elog(DEBUG3, "QUERY_TAG: query failed in the kill rule processor.");
